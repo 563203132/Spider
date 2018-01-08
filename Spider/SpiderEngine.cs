@@ -6,25 +6,50 @@ using System.Collections.Generic;
 using AbotX.Core;
 using Abot.Poco;
 using System.Net;
+using System.Linq;
+using AbotX.Crawler;
 
 namespace Spider
 {
     public class SpiderEngine
     {
-        public ParallelCrawlerEngine _crawlerEngine;
+        private ParallelCrawlerEngine _crawlerEngine;
+        private string _urlPattern = @"https://www.baidu.com/s?wd={0} 症状&pn={1}";
 
         public SpiderEngine()
         {
+        }
+
+        public void Stop()
+        {
+            if (_crawlerEngine != null)
+                _crawlerEngine.Stop(true);
+        }
+
+        public void Run()
+        {
+            var resources = SqlHelper.UnloadResources();
+            if (!resources.Any())
+                return;
+
+            var siteToCrawls = new List<SiteToCrawl>();
+            foreach(var res in resources)
+            {
+                for (var i = 0; i < 10; i++)
+                {
+                    siteToCrawls.Add(new SiteToCrawl
+                    {
+                        Uri = new Uri(string.Format(_urlPattern, res, 10 * i)),
+                        SiteBag = new { Name = res, Number = i + 1}
+                    });
+                }
+            }
+
             CrawlConfigurationX config = AbotXConfigurationSectionHandler.LoadFromXml().Convert();
             XmlConfigurator.Configure();//So the logger 
 
             var siteToCrawlProvider = new SiteToCrawlProvider();
-            siteToCrawlProvider.AddSitesToCrawl(new List<SiteToCrawl>
-            {
-                new SiteToCrawl{ Uri = new Uri("https://www.baidu.com/s?wd=乙肝 症状&pn=0"), SiteBag = "症状" },
-                new SiteToCrawl{ Uri = new Uri("https://www.baidu.com/s?wd=乙肝 症状&pn=10"), SiteBag = "症状" },
-                new SiteToCrawl{ Uri = new Uri("https://www.baidu.com/s?wd=乙肝 症状&pn=20"), SiteBag = "症状" },
-            });
+            siteToCrawlProvider.AddSitesToCrawl(siteToCrawls);
 
             //Create the crawl engine instance
             var impls = new ParallelImplementationOverride(
@@ -41,6 +66,8 @@ namespace Spider
             _crawlerEngine.AllCrawlsCompleted += (sender, eventArgs) =>
             {
                 Console.WriteLine("Completed crawling all sites");
+                _crawlerEngine.Stop(true);
+                Run();
             };
             _crawlerEngine.SiteCrawlCompleted += (sender, eventArgs) =>
             {
@@ -52,6 +79,7 @@ namespace Spider
                 //Register for crawler level events. These are Abot's events!!!
                 eventArgs.Crawler.PageCrawlCompleted += (abotSender, abotEventArgs) =>
                 {
+                    var crawlX = abotSender as CrawlerX;
                     CrawledPage crawledPage = abotEventArgs.CrawledPage;
 
                     if (crawledPage.WebException != null || crawledPage.HttpWebResponse.StatusCode != HttpStatusCode.OK)
@@ -62,15 +90,26 @@ namespace Spider
                             Console.WriteLine("Page had no content {0}", crawledPage.Uri.AbsoluteUri);
                         else
                         {
-                            Console.WriteLine("Depth: {0} --- Crawl of page succeeded {1}", crawledPage.CrawlDepth, crawledPage.Uri.AbsoluteUri);
-                            var item = new CrawledItem()
+                            try
                             {
-                                Name = "123",
-                                Url = crawledPage.Uri.AbsoluteUri,
-                                Detail = crawledPage.Content.Text
-                            };
+                                if (crawledPage.CrawlDepth == 1)
+                                {
+                                    Console.WriteLine("Depth: {0} --- Crawl of page succeeded {1}", crawledPage.CrawlDepth, crawledPage.Uri.AbsoluteUri);
+                                    var item = new CrawledItem()
+                                    {
+                                        Name = crawlX.CrawlBag.Name,
+                                        PageNumber = crawlX.CrawlBag.Number,
+                                        Url = crawledPage.Uri.AbsoluteUri,
+                                        Detail = crawledPage.Content.Text
+                                    };
 
-                            SqlHelper.Store(new System.Collections.Generic.List<CrawledItem>() { item });
+                                    SqlHelper.Store(new System.Collections.Generic.List<CrawledItem>() { item });
+                                }
+                            }
+                            catch(Exception e)
+                            {
+                                Console.WriteLine(e.Message);
+                            }
                         }
                     }
 
@@ -90,10 +129,7 @@ namespace Spider
                     return decision;
                 });
             };
-        }
 
-        public void Run()
-        {
             _crawlerEngine.StartAsync();
         }
     }

@@ -9,14 +9,21 @@ namespace Spider
 {
     class Program
     {
+        static SpiderEngine _spider;
+
         static void Main(string[] args)
         {
-            //Will use app.config for configuration
-            SpiderEngine spider = new SpiderEngine();
+            _spider = new SpiderEngine();
+            _spider.Run();
 
-            spider.Run();
+            //SqlHelper.InitResource();
 
             Console.ReadLine();
+        }
+
+        static void CurrentDomain_ProcessExit(object sender, EventArgs e)
+        {
+            _spider.Stop();
         }
     }
 }

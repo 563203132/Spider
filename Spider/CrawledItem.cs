@@ -7,5 +7,6 @@ namespace Spider
         public string Name { get; set; }
         public string Url { get; set; }
         public string Detail { get; set; }
+        public int PageNumber { get; set; }
     }
 }
